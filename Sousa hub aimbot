@@ -1,0 +1,138 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- 1. Interface (ScreenGui + Botão Arrastável)
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "SouzaHub_AimGui"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+local aimButton = Instance.new("TextButton")
+aimButton.Name = "AimButton"
+aimButton.Size = UDim2.new(0, 110, 0, 45)
+aimButton.Position = UDim2.new(0.5, -55, 0.7, 0)
+aimButton.BackgroundColor3 = Color3.fromRGB(220, 40, 40) -- Vermelho (OFF)
+aimButton.Text = "Aim: OFF"
+aimButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+aimButton.TextScaled = true
+aimButton.Font = Enum.Font.SourceSansBold
+aimButton.Parent = screenGui
+
+local uiCorner = Instance.new("UICorner")
+uiCorner.CornerRadius = UDim.new(0, 10)
+uiCorner.Parent = aimButton
+
+-- 2. Sistema para Arrastar o Botão (Touch / Mouse)
+local dragging = false
+local dragInput, dragStart, startPos
+
+local function updateInput(input)
+    local delta = input.Position - dragStart
+    aimButton.Position = UDim2.new(
+        startPos.X.Scale, 
+        startPos.X.Offset + delta.X, 
+        startPos.Y.Scale, 
+        startPos.Y.Offset + delta.Y
+    )
+end
+
+aimButton.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = aimButton.Position
+
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+
+aimButton.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        updateInput(input)
+    end
+end)
+
+-- 3. Busca de Alvo Mais Próximo
+local isLocked = false
+local lockedTarget = nil
+
+local function getClosestPlayer()
+    local closestPlayer = nil
+    local shortestDistance = math.huge
+    
+    if not (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")) then
+        return nil
+    end
+
+    local myPos = LocalPlayer.Character.HumanoidRootPart.Position
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+            if humanoid and humanoid.Health > 0 then
+                local targetPos = player.Character.HumanoidRootPart.Position
+                local distance = (targetPos - myPos).Magnitude
+
+                if distance < shortestDistance then
+                    shortestDistance = distance
+                    closestPlayer = player
+                end
+            end
+        end
+    end
+
+    return closestPlayer
+end
+
+-- Botão Toggle (ON / OFF)
+aimButton.MouseButton1Click:Connect(function()
+    isLocked = not isLocked
+    if isLocked then
+        aimButton.BackgroundColor3 = Color3.fromRGB(40, 200, 40) -- Verde (ON)
+        aimButton.Text = "Aim: ON"
+        lockedTarget = getClosestPlayer()
+    else
+        aimButton.BackgroundColor3 = Color3.fromRGB(220, 40, 40) -- Vermelho (OFF)
+        aimButton.Text = "Aim: OFF"
+        lockedTarget = nil
+    end
+end)
+
+-- 4. Foco de Câmera e Rotação do Personagem (Funciona Sem Shift Lock)
+RunService.RenderStepped:Connect(function()
+    if isLocked then
+        -- Validação do Alvo
+        if not lockedTarget or not lockedTarget.Character or not lockedTarget.Character:FindFirstChild("HumanoidRootPart") then
+            lockedTarget = getClosestPlayer()
+        end
+
+        local myChar = LocalPlayer.Character
+        if lockedTarget and myChar and myChar:FindFirstChild("HumanoidRootPart") then
+            local myHRP = myChar.HumanoidRootPart
+            local targetHRP = lockedTarget.Character:FindFirstChild("HumanoidRootPart")
+
+            if targetHRP then
+                -- 1. Aponta a câmera para o alvo
+                Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetHRP.Position)
+                
+                -- 2. Gira o próprio personagem para o alvo (garante funcionamento sem Shift Lock)
+                local targetPosLook = Vector3.new(targetHRP.Position.X, myHRP.Position.Y, targetHRP.Position.Z)
+                myHRP.CFrame = CFrame.lookAt(myHRP.Position, targetPosLook)
+            end
+        end
+    end
+end)
